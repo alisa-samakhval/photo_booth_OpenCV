@@ -22,8 +22,9 @@ class PhotoBoothUI(QWidget):
 
         # Load stickers directly here
         self.stickers = [
-            cv2.imread('/Users/alisasamohval/Desktop/photo_booth_openCV/stickers/proxy-image.jpeg', cv2.IMREAD_UNCHANGED),
-            cv2.imread('/Users/alisasamohval/Desktop/photo_booth_openCV/stickers/proxy-image.png', cv2.IMREAD_UNCHANGED)
+            cv2.imread('stickers/proxy-image.jpeg', cv2.IMREAD_UNCHANGED),
+            cv2.imread('stickers/proxy-image.png', cv2.IMREAD_UNCHANGED),
+            cv2.imread('stickers/glassesb.png', cv2.IMREAD_UNCHANGED)
         ]
         for i, s in enumerate(self.stickers):
             if s is None:
@@ -61,8 +62,12 @@ class PhotoBoothUI(QWidget):
         self.sticker2_btn = QPushButton('2')
         self.sticker2_btn.setStyleSheet('background-color: #232323; color: white; border-radius: 4px; font-size: 14px; padding: 4px 16px;')
         self.sticker2_btn.clicked.connect(lambda: self.set_sticker(1))
+        self.sticker3_btn = QPushButton('3')
+        self.sticker3_btn.setStyleSheet('background-color: #232323; color: white; border-radius: 4px; font-size: 14px; padding: 4px 16px;')
+        self.sticker3_btn.clicked.connect(lambda: self.set_sticker(2))
         self.stickers_menu_layout.addWidget(self.sticker1_btn)
         self.stickers_menu_layout.addWidget(self.sticker2_btn)
+        self.stickers_menu_layout.addWidget(self.sticker3_btn)
 
         # Filter menu (as buttons)
         self.filter_buttons = []
@@ -164,26 +169,37 @@ class PhotoBoothUI(QWidget):
         sticker_height = int(sticker.shape[0] * (w / sticker.shape[1]))
         sticker_resized = cv2.resize(sticker, (sticker_width, sticker_height), interpolation=cv2.INTER_AREA)
         sh, sw = sticker_resized.shape[:2]
-        # Place the hat above the face
-        y1 = max(0, y - sh)
+        # For glasses, place in the middle of the face rectangle (fine-tuned higher)
+        if self.selected_sticker_index == 2:  # Glasses (index 2)
+            y1 = y - h // 12
+        else:  # For hats, place above the face
+            y1 = max(0, y - sh)
         y2 = y1 + sh
         x1 = x
         x2 = x + sw
-        # Check bounds
-        if y1 < 0 or y2 > frame.shape[0] or x1 < 0 or x2 > frame.shape[1]:
-            print("Sticker out of bounds!")
-            return frame
-        if sticker_resized.shape[2] == 4:
-            # Split sticker into BGR and alpha
-            sticker_bgr = sticker_resized[..., :3]
-            mask = sticker_resized[..., 3:] / 255.0
-            roi = frame[y1:y2, x1:x2]
-            frame[y1:y2, x1:x2] = (roi * (1 - mask) + sticker_bgr * mask).astype(np.uint8)
-            print(f"Overlayed sticker with alpha at ({x1},{y1}) size ({sw},{sh})")
+
+        # Clip to image bounds
+        img_h, img_w = frame.shape[:2]
+        x1_clip, x2_clip = max(0, x1), min(img_w, x2)
+        y1_clip, y2_clip = max(0, y1), min(img_h, y2)
+
+        # Calculate the region of the sticker to use
+        sticker_x1 = x1_clip - x1
+        sticker_x2 = sticker_x1 + (x2_clip - x1_clip)
+        sticker_y1 = y1_clip - y1
+        sticker_y2 = sticker_y1 + (y2_clip - y1_clip)
+
+        if x2_clip > x1_clip and y2_clip > y1_clip:
+            sticker_part = sticker_resized[sticker_y1:sticker_y2, sticker_x1:sticker_x2]
+            roi = frame[y1_clip:y2_clip, x1_clip:x2_clip]
+            if sticker_part.shape[2] == 4:
+                sticker_bgr = sticker_part[..., :3]
+                mask = sticker_part[..., 3:] / 255.0
+                frame[y1_clip:y2_clip, x1_clip:x2_clip] = (roi * (1 - mask) + sticker_bgr * mask).astype(np.uint8)
+            else:
+                frame[y1_clip:y2_clip, x1_clip:x2_clip] = sticker_part
         else:
-            # No alpha channel, just overlay
-            frame[y1:y2, x1:x2] = sticker_resized
-            print(f"Overlayed sticker without alpha at ({x1},{y1}) size ({sw},{sh})")
+            print("Sticker completely out of bounds!")
         return frame
 
     def apply_filter(self, frame):
